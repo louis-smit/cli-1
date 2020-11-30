@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cli/cli/api"
+	"github.com/cli/cli/internal/ghinstance"
 	"github.com/cli/cli/internal/ghrepo"
 	"github.com/cli/cli/pkg/cmdutil"
 	"github.com/cli/cli/pkg/iostreams"
@@ -45,6 +46,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	}
 
 	cmd.Flags().StringVarP(&opts.OrgName, "org", "o", "", "List secrets for an organization")
+	cmd.Flags().Lookup("org").NoOptDefVal = "@owner"
 
 	return cmd
 }
@@ -56,12 +58,28 @@ func listRun(opts *ListOptions) error {
 	}
 	client := api.NewClientFromHTTP(c)
 
-	baseRepo, err := opts.BaseRepo()
-	if err != nil {
-		return fmt.Errorf("could not determine base repo: %w", err)
+	var baseRepo ghrepo.Interface
+	if opts.OrgName == "" || opts.OrgName == "@owner" {
+		baseRepo, err = opts.BaseRepo()
+		if err != nil {
+			return fmt.Errorf("could not determine base repo: %w", err)
+		}
 	}
 
-	secrets, err := getSecrets(client, baseRepo)
+	orgName := opts.OrgName
+	host := ghinstance.OverridableDefault()
+	if orgName == "@owner" {
+		orgName = baseRepo.RepoOwner()
+		host = baseRepo.RepoHost()
+	}
+
+	var secrets []Secret
+	if orgName != "" {
+		secrets, err = getOrgSecrets(client, host, orgName)
+	} else {
+		secrets, err = getRepoSecrets(client, baseRepo)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to get secrets: %w", err)
 	}
@@ -70,6 +88,9 @@ func listRun(opts *ListOptions) error {
 	for _, secret := range secrets {
 		tp.AddField(secret.Name, nil, nil)
 		updatedAt := fmt.Sprintf("updated %s", secret.UpdatedAt.Format("2006-Jan-02"))
+		if secret.Visibility != "" {
+			tp.AddField(fmtVisibility(secret), nil, nil)
+		}
 		tp.AddField(updatedAt, nil, nil)
 		tp.EndRow()
 	}
@@ -80,17 +101,39 @@ func listRun(opts *ListOptions) error {
 }
 
 type Secret struct {
-	Name      string
-	UpdatedAt time.Time `json:"updated_at"`
+	Name       string
+	UpdatedAt  time.Time `json:"updated_at"`
+	Visibility string
 }
 
-func getSecrets(client *api.Client, repo ghrepo.Interface) ([]Secret, error) {
-	url := fmt.Sprintf("repos/%s/%s/actions/secrets", repo.RepoOwner(), repo.RepoName())
+func fmtVisibility(s Secret) string {
+	switch s.Visibility {
+	case "all":
+		return "Visible to all repositories"
+	case "private":
+		return "Visible to private repositories"
+	case "selected":
+		// TODO print how many? print which ones?
+		return "Visible to selected repositories"
+	}
+	return ""
+}
+
+func getOrgSecrets(client *api.Client, host, orgName string) ([]Secret, error) {
+	return getSecrets(client, host, fmt.Sprintf("orgs/%s/actions/secrets", orgName))
+}
+
+func getRepoSecrets(client *api.Client, repo ghrepo.Interface) ([]Secret, error) {
+	return getSecrets(client, repo.RepoHost(), fmt.Sprintf("repos/%s/%s/actions/secrets",
+		repo.RepoOwner(), repo.RepoName()))
+}
+
+func getSecrets(client *api.Client, host, path string) ([]Secret, error) {
 	result := struct {
 		Secrets []Secret
 	}{}
 
-	err := client.REST(repo.RepoHost(), "GET", url, nil, &result)
+	err := client.REST(host, "GET", path, nil, &result)
 	if err != nil {
 		return nil, err
 	}
