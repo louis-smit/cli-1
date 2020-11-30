@@ -5,6 +5,7 @@ import (
 	"github.com/cli/cli/pkg/cmdutil"
 	"github.com/spf13/cobra"
 
+	cmdCreate "github.com/cli/cli/pkg/cmd/secret/create"
 	cmdList "github.com/cli/cli/pkg/cmd/secret/list"
 )
 
@@ -28,6 +29,7 @@ func NewCmdSecret(f *cmdutil.Factory) *cobra.Command {
 	cmdutil.EnableRepoOverride(cmd, f)
 
 	cmd.AddCommand(cmdList.NewCmdList(f, nil))
+	cmd.AddCommand(cmdCreate.NewCmdCreate(f, nil))
 	// TODO other commands
 
 	return cmd
