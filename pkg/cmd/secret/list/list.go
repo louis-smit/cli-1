@@ -87,7 +87,7 @@ func listRun(opts *ListOptions) error {
 	tp := utils.NewTablePrinter(opts.IO)
 	for _, secret := range secrets {
 		tp.AddField(secret.Name, nil, nil)
-		updatedAt := fmt.Sprintf("updated %s", secret.UpdatedAt.Format("2006-Jan-02"))
+		updatedAt := fmt.Sprintf("Updated %s", secret.UpdatedAt.Format("2006-Jan-02"))
 		if secret.Visibility != "" {
 			tp.AddField(fmtVisibility(secret), nil, nil)
 		}
