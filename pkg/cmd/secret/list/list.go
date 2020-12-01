@@ -124,8 +124,8 @@ func getOrgSecrets(client *api.Client, host, orgName string) ([]Secret, error) {
 }
 
 func getRepoSecrets(client *api.Client, repo ghrepo.Interface) ([]Secret, error) {
-	return getSecrets(client, repo.RepoHost(), fmt.Sprintf("repos/%s/%s/actions/secrets",
-		repo.RepoOwner(), repo.RepoName()))
+	return getSecrets(client, repo.RepoHost(), fmt.Sprintf("repos/%s/actions/secrets",
+		ghrepo.FullName(repo)))
 }
 
 func getSecrets(client *api.Client, host, path string) ([]Secret, error) {
