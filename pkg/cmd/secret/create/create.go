@@ -1,6 +1,7 @@
 package create
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +15,7 @@ import (
 	"github.com/cli/cli/pkg/cmdutil"
 	"github.com/cli/cli/pkg/iostreams"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/nacl/box"
 )
 
 type CreateOptions struct {
@@ -21,6 +23,7 @@ type CreateOptions struct {
 	IO         *iostreams.IOStreams
 	BaseRepo   func() (ghrepo.Interface, error)
 
+	SecretName      string
 	OrgName         string
 	Body            string
 	Visibility      string
@@ -56,6 +59,8 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// support `-R, --repo` override
 			opts.BaseRepo = f.BaseRepo
+
+			opts.SecretName = args[0]
 
 			if cmd.Flags().Changed("visibility") {
 				if opts.OrgName == "" {
@@ -109,37 +114,69 @@ func createRun(opts *CreateOptions) error {
 		host = baseRepo.RepoHost()
 	}
 
-	var pubKey string
-	if opts.OrgName != "" {
-		pubKey, err = getOrgPublicKey(client, host, orgName)
+	var pk string
+	if orgName != "" {
+		pk, err = getOrgPublicKey(client, host, orgName)
 	} else {
-		pubKey, err = getRepoPubKey(client, baseRepo)
+		pk, err = getRepoPubKey(client, baseRepo)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to fetch public key: %w", err)
 	}
 
 	fmt.Printf("DBG %#v\n", body)
-	fmt.Printf("DBG %#v\n", pubKey)
+	fmt.Printf("DBG %#v\n", pk)
 
-	return errors.New("not implemented")
-}
-
-func getBody(opts *CreateOptions) (string, error) {
-	body := opts.Body
-	if body == "-" {
-		content, err := ioutil.ReadAll(opts.IO.In)
-		if err != nil {
-			return "", fmt.Errorf("failed to read from STDIN: %w", err)
-		}
-		body = string(content)
-	} else if strings.HasPrefix(body, "@") {
-		content, err := opts.IO.ReadUserFile(body[1:])
-		if err != nil {
-			return "", fmt.Errorf("failed to read file %s: %w", body[1:], err)
-		}
-		body = string(content)
+	pubKey, err := base64.StdEncoding.DecodeString(pk)
+	if err != nil {
+		return fmt.Errorf("failed to decode public key: %w", err)
 	}
 
-	return body, nil
+	pka := [32]byte{}
+	copy(pka[:], pubKey[0:32])
+
+	fmt.Printf("DBG %#v\n", pubKey)
+
+	eBody, err := box.SealAnonymous(nil, body, &pka, nil)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt body: %w", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(eBody)
+
+	fmt.Printf("DBG %#v\n", encoded)
+
+	if orgName != "" {
+		// TODO support visibility
+		err = putOrgSecret(client, host, opts.SecretName, encoded)
+	} else {
+		err = putRepoSecret(client, baseRepo, opts.SecretName, encoded)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create secret: %w", err)
+	}
+
+	return nil
+}
+
+func getBody(opts *CreateOptions) (body []byte, err error) {
+	if opts.Body == "-" {
+		body, err = ioutil.ReadAll(opts.IO.In)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read from STDIN: %w", err)
+		}
+
+		return
+	}
+
+	if strings.HasPrefix(opts.Body, "@") {
+		body, err = opts.IO.ReadUserFile(opts.Body[1:])
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", opts.Body[1:], err)
+		}
+
+		return
+	}
+
+	return []byte(opts.Body), nil
 }
