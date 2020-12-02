@@ -114,6 +114,7 @@ func createRun(opts *CreateOptions) error {
 		host = baseRepo.RepoHost()
 	}
 
+	// TODO need key_id for the eventual push, so this needs to be restructured.
 	var pk string
 	if orgName != "" {
 		pk, err = getOrgPublicKey(client, host, orgName)
@@ -124,9 +125,6 @@ func createRun(opts *CreateOptions) error {
 		return fmt.Errorf("failed to fetch public key: %w", err)
 	}
 
-	fmt.Printf("DBG %#v\n", body)
-	fmt.Printf("DBG %#v\n", pk)
-
 	pubKey, err := base64.StdEncoding.DecodeString(pk)
 	if err != nil {
 		return fmt.Errorf("failed to decode public key: %w", err)
@@ -135,16 +133,12 @@ func createRun(opts *CreateOptions) error {
 	pka := [32]byte{}
 	copy(pka[:], pubKey[0:32])
 
-	fmt.Printf("DBG %#v\n", pubKey)
-
 	eBody, err := box.SealAnonymous(nil, body, &pka, nil)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt body: %w", err)
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(eBody)
-
-	fmt.Printf("DBG %#v\n", encoded)
 
 	if orgName != "" {
 		// TODO support visibility

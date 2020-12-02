@@ -18,6 +18,8 @@ func getRepoPubKey(client *api.Client, repo ghrepo.Interface) (string, error) {
 		ghrepo.FullName(repo)))
 }
 
+// TODO support key_id
+
 func getPubKey(client *api.Client, host, path string) (string, error) {
 	result := struct {
 		Key string
